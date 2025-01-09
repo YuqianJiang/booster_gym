@@ -8,13 +8,13 @@ import time
 
 @dataclass
 class JoystickConfig:
-    max_vx: float = 0.5
-    max_vy: float = 0.5
-    max_vyaw: float = 0.5
+    max_vx: float = 1.0
+    max_vy: float = 1.0
+    max_vyaw: float = 1.0
     control_threshold: float = 0.1
     # logitech
-    custom_mode_button: evdev.ecodes = evdev.ecodes.BTN_C
-    rl_gait_button: evdev.ecodes = evdev.ecodes.BTN_B
+    custom_mode_button: evdev.ecodes = evdev.ecodes.BTN_TRIGGER
+    rl_gait_button: evdev.ecodes = evdev.ecodes.BTN_TOP
     x_axis: evdev.ecodes = evdev.ecodes.ABS_Y
     y_axis: evdev.ecodes = evdev.ecodes.ABS_X
     yaw_axis: evdev.ecodes = evdev.ecodes.ABS_Z
@@ -54,12 +54,12 @@ class RemoteControlService:
 
     def get_custom_mode_operation_hint(self) -> str:
         if hasattr(self, "joystick") and getattr(self, "joystick") != None:
-            return "Press button B to start custom mode."
+            return "Press button X to start custom mode."
         return "Press 'b' to start custom mode."
 
     def get_rl_gait_operation_hint(self) -> str:
         if hasattr(self, "joystick") and getattr(self, "joystick") != None:
-            return "Press button A to start rl Gait."
+            return "Press button Y to start rl Gait."
         return "Press 'r' to start rl Gait."
 
     def _init_keyboard_control(self):
