@@ -77,11 +77,11 @@ class Controller:
         if abs(low_state_msg.imu_state.rpy[0]) > 1.0 or abs(low_state_msg.imu_state.rpy[1]) > 1.0:
             self.logger.warning("IMU base rpy values are too large: {}".format(low_state_msg.imu_state.rpy))
             self.running = False
-        self.timer.tick_timer_if_sim()
         time_now = self.timer.get_time()
         for i, motor in enumerate(low_state_msg.motor_state_serial):
             self.dof_pos_latest[i] = motor.q
         if time_now >= self.next_inference_time:
+            self.logger.debug("-----------------------------------------------------")
             self.projected_gravity[:] = rotate_vector_inverse_rpy(
                 low_state_msg.imu_state.rpy[0],
                 low_state_msg.imu_state.rpy[1],
@@ -92,6 +92,24 @@ class Controller:
             for i, motor in enumerate(low_state_msg.motor_state_serial):
                 self.dof_pos[i] = motor.q
                 self.dof_vel[i] = motor.dq
+
+            start_time = time.perf_counter()
+
+            self.dof_target[:] = self.policy.inference(
+                time_now=time_now,
+                dof_pos=self.dof_pos,
+                dof_vel=self.dof_vel,
+                base_ang_vel=self.base_ang_vel,
+                projected_gravity=self.projected_gravity,
+                vx=self.remoteControlService.get_vx_cmd(),
+                vy=self.remoteControlService.get_vy_cmd(),
+                vyaw=self.remoteControlService.get_vyaw_cmd(),
+            )
+
+            inference_time = time.perf_counter()
+            self.logger.debug(f"Inference took {(inference_time - start_time) * 100:.4f} ms")
+            self.next_inference_time += self.policy.get_policy_interval()
+            self.logger.debug(f"Next start time: {self.next_inference_time}")
 
     def _send_cmd(self, cmd: LowCmd):
         self.low_cmd_publisher.Write(cmd)
@@ -119,10 +137,10 @@ class Controller:
             self.filtered_dof_target[i] = self.low_cmd.motor_cmd[i].q
         self._send_cmd(self.low_cmd)
         send_time = time.perf_counter()
-        self.logger.debug(f"Send cmd took {(send_time - start_time)*1000:.4f} ms")
+        self.logger.debug(f"Send cmd took {(send_time - start_time)*100:.4f} ms")
         self.client.ChangeMode(RobotMode.kCustom)
         end_time = time.perf_counter()
-        self.logger.debug(f"Change mode took {(end_time - send_time)*1000:.4f} ms")
+        self.logger.debug(f"Change mode took {(end_time - send_time)*100:.4f} ms")
 
     def start_rl_gait_conditionally(self):
         print(f"{self.remoteControlService.get_rl_gait_operation_hint()}")
@@ -138,31 +156,6 @@ class Controller:
         self.publish_runner.daemon = True
         self.publish_runner.start()
         print(f"{self.remoteControlService.get_operation_hint()}")
-
-    def run(self):
-        time_now = self.timer.get_time()
-        if time_now < self.next_inference_time:
-            time.sleep(0.001)
-            return
-        self.logger.debug("-----------------------------------------------------")
-        self.next_inference_time += self.policy.get_policy_interval()
-        self.logger.debug(f"Next start time: {self.next_inference_time}")
-        start_time = time.perf_counter()
-
-        self.dof_target[:] = self.policy.inference(
-            time_now=time_now,
-            dof_pos=self.dof_pos,
-            dof_vel=self.dof_vel,
-            base_ang_vel=self.base_ang_vel,
-            projected_gravity=self.projected_gravity,
-            vx=self.remoteControlService.get_vx_cmd(),
-            vy=self.remoteControlService.get_vy_cmd(),
-            vyaw=self.remoteControlService.get_vyaw_cmd(),
-        )
-
-        inference_time = time.perf_counter()
-        self.logger.debug(f"Inference took {(inference_time - start_time)*1000:.4f} ms")
-        time.sleep(0.001)
 
     def _publish_cmd(self):
         while self.running:
@@ -191,7 +184,7 @@ class Controller:
             start_time = time.perf_counter()
             self._send_cmd(self.low_cmd)
             publish_time = time.perf_counter()
-            self.logger.debug(f"Publish took {(publish_time - start_time)*1000:.4f} ms")
+            self.logger.debug(f"Publish took {(publish_time - start_time)*100:.4f} ms")
             time.sleep(0.001)
 
     def __enter__(self) -> "Controller":
@@ -230,7 +223,8 @@ if __name__ == "__main__":
 
         try:
             while controller.running:
-                controller.run()
+                time.sleep(controller.cfg["common"]["dt"])
+                controller.timer.tick_timer_if_sim()
             controller.client.ChangeMode(RobotMode.kDamping)
         except KeyboardInterrupt:
             print("\nKeyboard interrupt received. Cleaning up...")
